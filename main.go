@@ -65,6 +65,11 @@ var sendETHCmd = &cli.Command{
 			Required: true,
 			Usage:    "the amount of token (0.00001 eth)",
 		},
+		&cli.Uint64Flag{
+			Name:  "gasLimit",
+			Value: 21000, // in units
+			Usage: "the amount of gas limit (wei)",
+		},
 	},
 	Action: func(c *cli.Context) error {
 		endpoint := os.Getenv("ENDPOINT")
@@ -72,7 +77,7 @@ var sendETHCmd = &cli.Command{
 			endpoint = defaultEndPoint
 		}
 
-		return PayEth(endpoint, c.String("fromKey"), c.String("fromCode"), c.String("toKey"), c.Int64("amount"))
+		return PayEth(endpoint, c.String("fromKey"), c.String("fromCode"), c.String("toKey"), c.Int64("amount"), c.Uint64("gasLimit"))
 	},
 }
 
@@ -103,6 +108,11 @@ var sendBZZCmd = &cli.Command{
 			Required: true,
 			Usage:    "the amount of token (0.00001 gBzz)",
 		},
+		&cli.Uint64Flag{
+			Name:  "gasLimit",
+			Value: 0,
+			Usage: "the amount of gas limit (wei)",
+		},
 	},
 	Action: func(c *cli.Context) error {
 		endpoint := os.Getenv("ENDPOINT")
@@ -110,12 +120,12 @@ var sendBZZCmd = &cli.Command{
 			endpoint = defaultEndPoint
 		}
 
-		return PayBzz(endpoint, c.String("fromKey"), c.String("fromCode"), c.String("toKey"), c.Int64("amount"))
+		return PayBzz(endpoint, c.String("fromKey"), c.String("fromCode"), c.String("toKey"), c.Int64("amount"), c.Uint64("gasLimit"))
 	},
 }
 
 // PayEth 传入出账的私钥，密码（geth导入账号那部分），传入要进账的公钥，金额单位是wei * 10的9次方。
-func PayEth(endpoint, fromKey, fromCode, toKey string, amount int64) error {
+func PayEth(endpoint, fromKey, fromCode, toKey string, amount int64, gasLimit uint64) error {
 	client, err := ethclient.Dial(endpoint)
 	if err != nil {
 		return err
@@ -144,11 +154,12 @@ func PayEth(endpoint, fromKey, fromCode, toKey string, amount int64) error {
 
 	// 支付的金额。
 	value := big.NewInt(amount * 100000000000000) // in wei (0.000000001 eth)
-	gasLimit := uint64(21000)                     // in units
 	gasPrice, err := client.SuggestGasPrice(context.Background())
 	if err != nil {
 		return err
 	}
+
+	log.Println("gas Limit:", gasLimit)
 
 	toAddress := common.HexToAddress(toKey)
 	// 这个方法已弃用，新的我不会用
@@ -175,7 +186,7 @@ func PayEth(endpoint, fromKey, fromCode, toKey string, amount int64) error {
 }
 
 // PayBzz 传入出账的私钥，密码（geth导入账号那部分），传入要进账的公钥，金额单位是wei * 10的9次方。
-func PayBzz(endpoint, fromKey, fromCode, toKey string, amount int64) error {
+func PayBzz(endpoint, fromKey, fromCode, toKey string, amount int64, gasLimit uint64) error {
 	client, err := ethclient.Dial(endpoint)
 	if err != nil {
 		return err
@@ -230,16 +241,17 @@ func PayBzz(endpoint, fromKey, fromCode, toKey string, amount int64) error {
 	data = append(data, paddedAddress...)
 	data = append(data, paddedAmount...)
 
-	// 获取燃气上限制
-	gasLimit, err := client.EstimateGas(context.Background(), ethereum.CallMsg{
-		To:   &toAddress,
-		Data: data,
-	})
-	if err != nil {
-		log.Fatal(err)
+	if gasLimit <= 0 {
+		// 获取燃气上限制
+		gasLimit, err = client.EstimateGas(context.Background(), ethereum.CallMsg{
+			To:   &toAddress,
+			Data: data,
+		})
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
-	gasLimit = gasLimit * 2
 	log.Println("gas Limit:", gasLimit)
 
 	tx := types.NewTransaction(nonce, tokenAddress, value, gasLimit, gasPrice, data)
