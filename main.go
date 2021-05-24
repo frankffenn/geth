@@ -14,10 +14,11 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/crypto/sha3"
+	"golang.org/x/xerrors"
 )
 
 const (
-	defaultEndPoint = "https://goerli.infura.io/v3/f745456f30a8485babdd0bb3aa42725e"
+	defaultEndPoint = "http://120.79.149.59:8545"
 )
 
 func main() {
@@ -48,12 +49,6 @@ var sendETHCmd = &cli.Command{
 			Usage:    "specify the private key of the send wallet",
 		},
 		&cli.StringFlag{
-			Name:     "fromCode",
-			Value:    "",
-			Required: true,
-			Usage:    "specify the password of the send wallet",
-		},
-		&cli.StringFlag{
 			Name:     "toKey",
 			Value:    "",
 			Required: true,
@@ -71,9 +66,9 @@ var sendETHCmd = &cli.Command{
 			Usage: "the amount of gas limit (wei)",
 		},
 		&cli.Uint64Flag{
-			Name:  "gasPrice",
-			Value: 0, // in units
-			Usage: "the amount of gas price (wei)",
+			Name:  "nGasPrice",
+			Value: 2, // in units
+			Usage: "n times of the current gas price",
 		},
 	},
 	Action: func(c *cli.Context) error {
@@ -82,7 +77,7 @@ var sendETHCmd = &cli.Command{
 			endpoint = defaultEndPoint
 		}
 
-		return PayEth(endpoint, c.String("fromKey"), c.String("fromCode"), c.String("toKey"), c.Int64("amount"), c.Uint64("gasLimit"), c.Uint64("gasPrice"))
+		return PayEth(endpoint, c.String("fromKey"), c.String("toKey"), c.Int64("amount"), c.Uint64("gasLimit"), c.Uint64("nGasPrice"))
 	},
 }
 
@@ -94,12 +89,6 @@ var sendBZZCmd = &cli.Command{
 			Value:    "",
 			Required: true,
 			Usage:    "specify the private key of the send wallet",
-		},
-		&cli.StringFlag{
-			Name:     "fromCode",
-			Value:    "",
-			Required: true,
-			Usage:    "specify the password of the send wallet",
 		},
 		&cli.StringFlag{
 			Name:     "toKey",
@@ -119,9 +108,9 @@ var sendBZZCmd = &cli.Command{
 			Usage: "the amount of gas limit (wei)",
 		},
 		&cli.Uint64Flag{
-			Name:  "gasPrice",
-			Value: 0, // in units
-			Usage: "the amount of gas price (wei)",
+			Name:  "nGasPrice",
+			Value: 2, // in units
+			Usage: "n times of the current gas price",
 		},
 	},
 	Action: func(c *cli.Context) error {
@@ -130,12 +119,16 @@ var sendBZZCmd = &cli.Command{
 			endpoint = defaultEndPoint
 		}
 
-		return PayBzz(endpoint, c.String("fromKey"), c.String("fromCode"), c.String("toKey"), c.Int64("amount"), c.Uint64("gasLimit"), c.Uint64("gasPrice"))
+		return PayBzz(endpoint, c.String("fromKey"), c.String("toKey"), c.Int64("amount"), c.Uint64("gasLimit"), c.Uint64("nGasPrice"))
 	},
 }
 
-// PayEth 传入出账的私钥，密码（geth导入账号那部分），传入要进账的公钥，金额单位是wei * 10的9次方。
-func PayEth(endpoint, fromKey, fromCode, toKey string, amount int64, gasLimit, gasPrice uint64) error {
+// PayEth 传入出账的私钥（geth导入账号那部分），传入要进账的公钥，金额单位是wei * 10的9次方。
+func PayEth(endpoint, fromKey, toKey string, amount int64, gasLimit, nGasPrice uint64) error {
+	if toKey == "" {
+		return xerrors.New("receiver must not be empty")
+	}
+
 	client, err := ethclient.Dial(endpoint)
 	if err != nil {
 		return err
@@ -169,15 +162,13 @@ func PayEth(endpoint, fromKey, fromCode, toKey string, amount int64, gasLimit, g
 		return err
 	}
 
-	if big.NewInt(int64(gasPrice)).Cmp(price) > 0 {
-		price = big.NewInt(int64(gasPrice))
-	}
+	gasPrice := big.NewInt(0).Mul(price, big.NewInt(int64(nGasPrice)))
 
-	log.Println("gas Price:", price)
+	log.Println("gas Price:", gasPrice)
 	log.Println("gas Limit:", gasLimit)
 
 	toAddress := common.HexToAddress(toKey)
-	tx := types.NewTransaction(nonce, toAddress, value, gasLimit, price, nil)
+	tx := types.NewTransaction(nonce, toAddress, value, gasLimit, gasPrice, nil)
 
 	chainID, err := client.NetworkID(context.Background())
 	if err != nil {
@@ -199,8 +190,12 @@ func PayEth(endpoint, fromKey, fromCode, toKey string, amount int64, gasLimit, g
 	return nil
 }
 
-// PayBzz 传入出账的私钥，密码（geth导入账号那部分），传入要进账的公钥，金额单位是wei * 10的9次方。
-func PayBzz(endpoint, fromKey, fromCode, toKey string, amount int64, gasLimit, gasPrice uint64) error {
+// PayBzz 传入出账的私钥（geth导入账号那部分），传入要进账的公钥，金额单位是wei * 10的9次方。
+func PayBzz(endpoint, fromKey, toKey string, amount int64, gasLimit, nGasPrice uint64) error {
+	if toKey == "" {
+		return xerrors.New("receiver must not be empty")
+	}
+
 	client, err := ethclient.Dial(endpoint)
 	if err != nil {
 		return err
@@ -234,9 +229,7 @@ func PayBzz(endpoint, fromKey, fromCode, toKey string, amount int64, gasLimit, g
 		return err
 	}
 
-	if big.NewInt(int64(gasPrice)).Cmp(price) > 0 {
-		price = big.NewInt(int64(gasPrice))
-	}
+	gasPrice := big.NewInt(0).Mul(price, big.NewInt(int64(nGasPrice)))
 
 	toAddress := common.HexToAddress(toKey)
 	var data []byte
@@ -272,10 +265,10 @@ func PayBzz(endpoint, fromKey, fromCode, toKey string, amount int64, gasLimit, g
 		gasLimit = gLimit
 	}
 
-	log.Println("gas Price:", price)
+	log.Println("gas Price:", gasPrice)
 	log.Println("gas Limit:", gasLimit)
 
-	tx := types.NewTransaction(nonce, tokenAddress, value, gasLimit, price, data)
+	tx := types.NewTransaction(nonce, tokenAddress, value, gasLimit, gasPrice, data)
 
 	chainID, err := client.NetworkID(context.Background())
 	if err != nil {

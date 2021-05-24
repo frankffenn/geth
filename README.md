@@ -29,23 +29,24 @@ USAGE:
    geth eth [command options] [arguments...]
 
 OPTIONS:
-   --fromKey value   specify the private key of the send wallet
-   --fromCode value  specify the password of the send wallet
-   --toKey value     the public key of the receive wallet
-   --amount value    the amount of token (0.00001 eth) (default: 1000)
-   --help, -h        show help (default: false)
+   --fromKey value    specify the private key of the send wallet
+   --toKey value      the public key of the receive wallet
+   --amount value     the amount of token (0.00001 eth) (default: 1000)
+   --gasLimit value   the amount of gas limit (wei) (default: 21000)
+   --nGasPrice value  n times of the current gas price (default: 2)
+   --help, -h         show help (default: false)
 ```
 
 Example:
 
 transfer eth
 ```
-geth eth --fromKey=YourPrivateKey --fromCode=YourPassword --toKey=ToAddress --amount=1000
+./geth eth --fromKey=yourPrivateKey  --toKey=toAddress --amount=5000 --nGasPrice=2
 ```
 or bzz
 
 ```
-geth bzz --fromKey=YourPrivateKey --fromCode=YourPassword --toKey=ToAddress --amount=1000
+./geth bzz --fromKey=yourPrivateKey --toKey=toAddress --amount=100000 --gasLimit=3000000 --nGasPrice=2
 ```
 
 more token will be support
