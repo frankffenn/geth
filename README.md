@@ -1,52 +1,66 @@
 # geth manual
 
-use `geth` tool to transfer `ETH` and `gBZZ` token 
+use `geth-cli` tool to transfer `ETH` and `gBZZ` token 
 
 Usage:
 ```
-~/go/src/geth » geth help
+~/go/src/geth-cli » geth-cli help
 NAME:
-   geth - Send ETH and ERC-20 token
+   geth-cli - Common Ethereum tools
 
 USAGE:
-   geth [global options] command [command options] [arguments...]
+   geth-cli [global options] command [command options] [arguments...]
 
 COMMANDS:
-   eth
-   bzz
-   help, h  Shows a list of commands or help for one command
+   txpool     
+   gas-price  return the current gas price (Gwei)
+   eth        
+   bzz        
+   help, h    Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
    --help, -h  show help (default: false)
 ```
 
 ```
-~/gopath/src/geth » geth eth help   
+~/gopath/src/geth » geth-cli eth help   
 NAME:
-   geth eth -
+   geth-cli eth - A new cli application
 
 USAGE:
-   geth eth [command options] [arguments...]
+   geth-cli eth command [command options] [arguments...]
+
+COMMANDS:
+   bls      
+   send     
+   help, h  Shows a list of commands or help for one command
 
 OPTIONS:
-   --fromKey value    specify the private key of the send wallet
-   --toKey value      the public key of the receive wallet
-   --amount value     the amount of token (0.00001 eth) (default: 1000)
-   --gasLimit value   the amount of gas limit (wei) (default: 21000)
-   --nGasPrice value  n times of the current gas price (default: 2)
-   --help, -h         show help (default: false)
+   --help, -h  show help (default: false)
 ```
 
 Example:
 
+query current eth gas price
+```
+./geth-cli gas-price
+
+ currnet gasPrice: 115.2 Gwei
+```
+
 transfer eth
 ```
-./geth eth --fromKey=yourPrivateKey  --toKey=toAddress --amount=5000 --nGasPrice=2
+./geth-cli eth send --fromKey=yourPrivateKey --toKey=toAddress --amount=100000 --gasLimit=1000000 --nGasPrice=2
 ```
 or bzz
 
 ```
-./geth bzz --fromKey=yourPrivateKey --toKey=toAddress --amount=100000 --gasLimit=3000000 --nGasPrice=2
+./geth-cli bzz send --fromKey=yourPrivateKey --toKey=toAddress --amount=100000 --gasLimit=3000000 --nGasPrice=2
+```
+
+replace gas price from txpool
+```
+./geth-cli txpool replace --from=youtWalletAddress --fromKey=yourPrivateKey --nGasPrice=2 --gasLimit=1
 ```
 
 more token will be support

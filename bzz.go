@@ -4,70 +4,31 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"fmt"
-	"geth-cli/jsonrpc"
-	"log"
+	"geth-cli/erc20-token"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"math/big"
-	"os"
-
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/crypto/sha3"
 	"golang.org/x/xerrors"
+	"log"
 )
 
-var defaultEndPoint = "http://120.79.149.59:8545"
+const bzzTokenAddress  = "0x2ac3c1d3e24b45c6c310534bc2dd84b5ed576335"
 
-var client *jsonrpc.Client
-
-func main() {
-	endpoint := os.Getenv("ENDPOINT")
-	if endpoint != "" {
-		defaultEndPoint = endpoint
-	}
-
-	client = jsonrpc.NewEthClient(defaultEndPoint)
-
-	local := []*cli.Command{
-		txPoolCmd,
-		gasPriceCmd,
-		ETHCmd,
-		BZZCmd,
-	}
-
-	app := &cli.App{
-		Name:     "geth-cli",
-		Usage:    "Common Ethereum tools",
-		Commands: local,
-	}
-
-	if err := app.Run(os.Args); err != nil {
-		log.Println(err)
-		os.Exit(1)
-	}
-}
-
-var gasPriceCmd = &cli.Command{
-	Name:  "gas-price",
-	Usage: "return the current gas price (Gwei)",
-	Action: func(c *cli.Context) error {
-		client, err := ethclient.Dial(defaultEndPoint)
-		if err != nil {
-			return err
-		}
-
-		gasPrice, err := client.SuggestGasPrice(context.Background())
-		if err != nil {
-			return err
-		}
-
-		fmt.Printf("currnet gasPrice: %v Gwei\n", float64(gasPrice.Int64())/1000000000)
-		return nil
+var BZZCmd = &cli.Command{
+	Name: "bzz",
+	Subcommands:[]*cli.Command{
+		bzzBalancesCmd,
+		sendBzzCmd,
 	},
 }
 
-var ethBalancesCmd = &cli.Command{
+var bzzBalancesCmd = &cli.Command{
 	Name: "bls",
 	Flags: []cli.Flag{
 		&cli.StringFlag{
@@ -82,18 +43,24 @@ var ethBalancesCmd = &cli.Command{
 		if err != nil {
 			return err
 		}
-		account := common.HexToAddress(c.String("address"))
-		balance, err := client.BalanceAt(context.Background(), account, nil)
+		tokenAddress := common.HexToAddress(bzzTokenAddress)
+		instance, err := token.NewToken(tokenAddress, client)
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		fmt.Println(balance)
+		address := common.HexToAddress(c.String("address"))
+		bal, err := instance.BalanceOf(&bind.CallOpts{}, address)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		fmt.Println(bal)
 		return nil
 	},
 }
 
-var sendEthCmd = &cli.Command{
+var sendBzzCmd  = &cli.Command{
 	Name: "send",
 	Flags: []cli.Flag{
 		&cli.StringFlag{
@@ -110,13 +77,13 @@ var sendEthCmd = &cli.Command{
 		},
 		&cli.Int64Flag{
 			Name:     "amount",
-			Value:    1000,
+			Value:    100000,
 			Required: true,
-			Usage:    "the amount of token (0.00001 eth)",
+			Usage:    "the amount of token (0.00001 gBzz)",
 		},
 		&cli.Uint64Flag{
 			Name:  "gasLimit",
-			Value: 21000, // in units
+			Value: 0,
 			Usage: "the amount of gas limit (wei)",
 		},
 		&cli.Uint64Flag{
@@ -126,20 +93,12 @@ var sendEthCmd = &cli.Command{
 		},
 	},
 	Action: func(c *cli.Context) error {
-		return PayEth(defaultEndPoint, c.String("fromKey"), c.String("toKey"), c.Int64("amount"), c.Uint64("gasLimit"), c.Uint64("nGasPrice"))
+		return PayBzz(defaultEndPoint, c.String("fromKey"), c.String("toKey"), c.Int64("amount"), c.Uint64("gasLimit"), c.Uint64("nGasPrice"))
 	},
 }
 
-var ETHCmd = &cli.Command{
-	Name: "eth",
-	Subcommands:[]*cli.Command{
-		ethBalancesCmd,
-		sendEthCmd,
-	},
-}
-
-// PayEth 传入出账的私钥（geth导入账号那部分），传入要进账的公钥，金额单位是wei * 10的9次方。
-func PayEth(endpoint, fromKey, toKey string, amount int64, gasLimit, nGasPrice uint64) error {
+// PayBzz 传入出账的私钥（geth导入账号那部分），传入要进账的公钥，金额单位是wei * 10的9次方。
+func PayBzz(endpoint, fromKey, toKey string, amount int64, gasLimit, nGasPrice uint64) error {
 	if toKey == "" {
 		return xerrors.New("receiver must not be empty")
 	}
@@ -170,8 +129,8 @@ func PayEth(endpoint, fromKey, toKey string, amount int64, gasLimit, nGasPrice u
 		return err
 	}
 
-	// 支付的金额。
-	value := big.NewInt(amount * 100000000000000) // in wei (0.000000001 eth)
+	// 代币传输不需要传输ETH，因此将交易“值”设置为“0”。
+	value := big.NewInt(0)
 	price, err := client.SuggestGasPrice(context.Background())
 	if err != nil {
 		return err
@@ -179,11 +138,44 @@ func PayEth(endpoint, fromKey, toKey string, amount int64, gasLimit, nGasPrice u
 
 	gasPrice := big.NewInt(0).Mul(price, big.NewInt(int64(nGasPrice)))
 
+	toAddress := common.HexToAddress(toKey)
+	var data []byte
+	// 智能合约地址
+	transferFnSignature := []byte("transfer(address,uint256)")
+	tokenAddress := common.HexToAddress(bzzTokenAddress)
+
+	// 生成函数签名
+	hash := sha3.NewLegacyKeccak256()
+	hash.Write(transferFnSignature)
+	methodID := hash.Sum(nil)[:4]
+
+	// 将给我们发送代币的地址左填充到32字节
+	paddedAddress := common.LeftPadBytes(toAddress.Bytes(), 32)
+
+	sentAmount := big.NewInt(amount * 1000000000000)
+	paddedAmount := common.LeftPadBytes(sentAmount.Bytes(), 32)
+
+	data = append(data, methodID...)
+	data = append(data, paddedAddress...)
+	data = append(data, paddedAmount...)
+
+	// 获取燃气上限制
+	gLimit, err := client.EstimateGas(context.Background(), ethereum.CallMsg{
+		To:   &toAddress,
+		Data: data,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if gLimit > gasLimit {
+		gasLimit = gLimit
+	}
+
 	log.Println("gas Price:", gasPrice)
 	log.Println("gas Limit:", gasLimit)
 
-	toAddress := common.HexToAddress(toKey)
-	tx := types.NewTransaction(nonce, toAddress, value, gasLimit, gasPrice, nil)
+	tx := types.NewTransaction(nonce, tokenAddress, value, gasLimit, gasPrice, data)
 
 	chainID, err := client.NetworkID(context.Background())
 	if err != nil {
@@ -200,7 +192,8 @@ func PayEth(endpoint, fromKey, toKey string, amount int64, gasLimit, nGasPrice u
 		return err
 	}
 
-	log.Printf("eth tx sent: %s", signedTx.Hash().Hex())
+	log.Printf("bzz tx sent: %s", signedTx.Hash().Hex())
 
 	return nil
+
 }
